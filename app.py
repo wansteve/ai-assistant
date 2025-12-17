@@ -1,9 +1,26 @@
 import streamlit as st
-import requests
+import anthropic
 
 st.set_page_config(page_title="AI Assistant", layout="wide")
 
-API_URL = "http://localhost:8000"
+# Get API key from Streamlit secrets (for cloud deployment)
+# or from local config for local testing
+try:
+    api_key = st.secrets["api_key"]
+    model = st.secrets.get("model", "claude-sonnet-4-20250514")
+except:
+    # Fallback to config.yaml for local development
+    import yaml
+    try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+            api_key = config["api_key"]
+            model = config.get("model", "claude-sonnet-4-20250514")
+    except:
+        st.error("Please configure your API key in Streamlit secrets or config.yaml")
+        st.stop()
+
+client = anthropic.Anthropic(api_key=api_key)
 
 st.title("AI Assistant")
 
@@ -17,17 +34,18 @@ with tab1:
         if text_to_summarize:
             with st.spinner("Summarizing..."):
                 try:
-                    response = requests.post(
-                        f"{API_URL}/summarize",
-                        json={"text": text_to_summarize}
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=1024,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Summarize the following text concisely:\n\n{text_to_summarize}"
+                        }]
                     )
-                    if response.status_code == 200:
-                        st.success("Summary:")
-                        st.write(response.json()["result"])
-                    else:
-                        st.error(f"Error: {response.json()['detail']}")
+                    st.success("Summary:")
+                    st.write(message.content[0].text)
                 except Exception as e:
-                    st.error(f"Connection error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
         else:
             st.warning("Please enter text to summarize")
 
@@ -40,17 +58,18 @@ with tab2:
         if draft_prompt:
             with st.spinner("Generating draft..."):
                 try:
-                    response = requests.post(
-                        f"{API_URL}/draft",
-                        json={"text": draft_context, "prompt": draft_prompt}
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=2048,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Write a draft based on this prompt: {draft_prompt}\n\nContext: {draft_context}"
+                        }]
                     )
-                    if response.status_code == 200:
-                        st.success("Draft:")
-                        st.write(response.json()["result"])
-                    else:
-                        st.error(f"Error: {response.json()['detail']}")
+                    st.success("Draft:")
+                    st.write(message.content[0].text)
                 except Exception as e:
-                    st.error(f"Connection error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
         else:
             st.warning("Please enter a prompt")
 
@@ -62,16 +81,17 @@ with tab3:
         if research_topic:
             with st.spinner("Researching..."):
                 try:
-                    response = requests.post(
-                        f"{API_URL}/research",
-                        json={"text": research_topic}
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=2048,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Research and provide detailed information about: {research_topic}"
+                        }]
                     )
-                    if response.status_code == 200:
-                        st.success("Research Results:")
-                        st.write(response.json()["result"])
-                    else:
-                        st.error(f"Error: {response.json()['detail']}")
+                    st.success("Research Results:")
+                    st.write(message.content[0].text)
                 except Exception as e:
-                    st.error(f"Connection error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
         else:
             st.warning("Please enter a research topic")
