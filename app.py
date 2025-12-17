@@ -1,7 +1,7 @@
 import streamlit as st
 import anthropic
 
-st.set_page_config(page_title="AI Assistant", layout="wide")
+st.set_page_config(page_title="Steve Wan's AI Legal Assistant", layout="wide")
 
 # Get API key from Streamlit secrets (for cloud deployment)
 # or from local config for local testing
@@ -22,7 +22,7 @@ except:
 
 client = anthropic.Anthropic(api_key=api_key)
 
-st.title("AI Assistant")
+st.title("⚖️ Steve Wan's AI Legal Assistant")
 
 tab1, tab2, tab3 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research"])
 
