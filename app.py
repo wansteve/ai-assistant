@@ -1,7 +1,11 @@
 import streamlit as st
 import anthropic
+from document_processor import DocumentProcessor, Document
 
 st.set_page_config(page_title="Steve Wan's AI Legal Assistant", layout="wide")
+
+# Initialize document processor
+doc_processor = DocumentProcessor()
 
 # Get API key from Streamlit secrets (for cloud deployment)
 # or from local config for local testing
@@ -24,7 +28,55 @@ client = anthropic.Anthropic(api_key=api_key)
 
 st.title("⚖️ Steve Wan's AI Legal Assistant")
 
-tab1, tab2, tab3 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research"])
+# Sidebar for document upload and management
+with st.sidebar:
+    st.header("📄 Document Management")
+    
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Upload Document",
+        type=['pdf', 'docx', 'txt'],
+        help="Upload PDF, DOCX, or TXT files for processing"
+    )
+    
+    if uploaded_file is not None:
+        if st.button("Process Document"):
+            with st.spinner("Processing document..."):
+                try:
+                    doc = doc_processor.process_file(uploaded_file)
+                    st.success(f"✅ Document processed: {doc.title}")
+                    st.json({
+                        "Document ID": doc.doc_id,
+                        "Title": doc.title,
+                        "Type": doc.file_type,
+                        "Pages": doc.page_count if doc.page_count else "N/A",
+                        "Text Length": f"{len(doc.text)} characters"
+                    })
+                except Exception as e:
+                    st.error(f"Error processing document: {str(e)}")
+    
+    # List uploaded documents
+    st.divider()
+    st.subheader("Uploaded Documents")
+    documents = doc_processor.list_documents()
+    
+    if documents:
+        for doc in documents:
+            with st.expander(f"📄 {doc.title}"):
+                st.write(f"**Type:** {doc.file_type}")
+                st.write(f"**ID:** {doc.doc_id}")
+                if doc.page_count:
+                    st.write(f"**Pages:** {doc.page_count}")
+                st.write(f"**Uploaded:** {doc.upload_date[:10]}")
+                st.write(f"**Characters:** {len(doc.text):,}")
+                
+                if st.button(f"Use in Analysis", key=f"use_{doc.doc_id}"):
+                    st.session_state['selected_doc'] = doc
+                    st.success(f"Selected: {doc.title}")
+    else:
+        st.info("No documents uploaded yet")
+
+tab1, tab2, tab3, tab4 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research", "📄 Document Analysis"])
 
 with tab1:
     st.header("Summarize Text")
@@ -95,3 +147,53 @@ with tab3:
                     st.error(f"Error: {str(e)}")
         else:
             st.warning("Please enter a research topic")
+
+with tab4:
+    st.header("Document Analysis")
+    
+    # Check if a document is selected
+    selected_doc = st.session_state.get('selected_doc', None)
+    
+    if selected_doc:
+        st.info(f"📄 Analyzing: **{selected_doc.title}** ({selected_doc.file_type})")
+        
+        analysis_type = st.selectbox(
+            "Select Analysis Type",
+            ["Summarize Document", "Extract Key Points", "Legal Review", "Custom Query"]
+        )
+        
+        custom_query = ""
+        if analysis_type == "Custom Query":
+            custom_query = st.text_area("Enter your question about the document:")
+        
+        if st.button("Analyze Document", key="analyze_btn"):
+            with st.spinner("Analyzing document..."):
+                try:
+                    # Prepare prompt based on analysis type
+                    if analysis_type == "Summarize Document":
+                        prompt = f"Provide a comprehensive summary of this legal document:\n\n{selected_doc.text}"
+                    elif analysis_type == "Extract Key Points":
+                        prompt = f"Extract and list the key points, clauses, and important terms from this document:\n\n{selected_doc.text}"
+                    elif analysis_type == "Legal Review":
+                        prompt = f"Perform a legal review of this document. Identify potential issues, risks, and areas that may need attention:\n\n{selected_doc.text}"
+                    else:
+                        prompt = f"Document: {selected_doc.text}\n\nQuestion: {custom_query}"
+                    
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=4096,
+                        messages=[{
+                            "role": "user",
+                            "content": prompt
+                        }]
+                    )
+                    st.success("Analysis Complete:")
+                    st.write(message.content[0].text)
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        
+        # Show document preview
+        with st.expander("📄 View Document Text"):
+            st.text_area("Document Content", selected_doc.text, height=400)
+    else:
+        st.warning("⬅️ Please upload and select a document from the sidebar to analyze.")
