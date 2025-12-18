@@ -136,3 +136,37 @@ class DocumentProcessor:
         # Sort by upload date (newest first)
         documents.sort(key=lambda x: x.upload_date, reverse=True)
         return documents
+    
+    def delete_document(self, doc_id: str) -> bool:
+        """Delete a document and all its associated files"""
+        try:
+            # Find the original file extension from metadata
+            metadata_path = self.extracted_dir / f"{doc_id}_metadata.json"
+            
+            if not metadata_path.exists():
+                return False
+            
+            # Load metadata to get original filename and extension
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                original_filename = data.get('original_filename', '')
+                file_extension = Path(original_filename).suffix.lower()
+            
+            # Delete raw file
+            raw_path = self.raw_dir / f"{doc_id}{file_extension}"
+            if raw_path.exists():
+                os.remove(raw_path)
+            
+            # Delete extracted text file
+            text_path = self.extracted_dir / f"{doc_id}.txt"
+            if text_path.exists():
+                os.remove(text_path)
+            
+            # Delete metadata file
+            if metadata_path.exists():
+                os.remove(metadata_path)
+            
+            return True
+        except Exception as e:
+            print(f"Error deleting document {doc_id}: {str(e)}")
+            return False

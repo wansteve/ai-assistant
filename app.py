@@ -70,9 +70,22 @@ with st.sidebar:
                 st.write(f"**Uploaded:** {doc.upload_date[:10]}")
                 st.write(f"**Characters:** {len(doc.text):,}")
                 
-                if st.button(f"Use in Analysis", key=f"use_{doc.doc_id}"):
-                    st.session_state['selected_doc'] = doc
-                    st.success(f"Selected: {doc.title}")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"📊 Use", key=f"use_{doc.doc_id}"):
+                        st.session_state['selected_doc'] = doc
+                        st.rerun()
+                
+                with col2:
+                    if st.button(f"🗑️ Delete", key=f"del_{doc.doc_id}", type="secondary"):
+                        if doc_processor.delete_document(doc.doc_id):
+                            # Clear selection if this was the selected doc
+                            if st.session_state.get('selected_doc') and st.session_state['selected_doc'].doc_id == doc.doc_id:
+                                st.session_state['selected_doc'] = None
+                            st.success(f"Deleted: {doc.title}")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete document")
     else:
         st.info("No documents uploaded yet")
 
