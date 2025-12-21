@@ -85,6 +85,111 @@ with st.sidebar:
                             st.success(f"Deleted: {doc.title}")
                             st.rerun()
                         else:
+                            st.error("Failed to delete document")
+    else:
+        st.info("No documents uploaded yet")
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research", "📄 Document Analysis", "🔎 Semantic Search"])
+
+with tab1:
+    st.header("Summarize Text")
+    text_to_summarize = st.text_area("Enter text to summarize:", height=200)
+    
+    if st.button("Summarize", key="sum_btn"):
+        if text_to_summarize:
+            with st.spinner("Summarizing..."):
+                try:
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=1024,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Summarize the following text concisely:\n\n{text_to_summarize}"
+                        }]
+                    )
+                    st.success("Summary:")
+                    st.write(message.content[0].text)
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        else:
+            st.warning("Please enter text to summarize")
+
+with tab2:
+    st.header("Draft Content")
+    draft_prompt = st.text_input("What would you like to draft?")
+    draft_context = st.text_area("Additional context (optional):", height=150)
+    
+    if st.button("Generate Draft", key="draft_btn"):
+        if draft_prompt:
+            with st.spinner("Generating draft..."):
+                try:
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=2048,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Write a draft based on this prompt: {draft_prompt}\n\nContext: {draft_context}"
+                        }]
+                    )
+                    st.success("Draft:")
+                    st.write(message.content[0].text)
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        else:
+            st.warning("Please enter a prompt")
+
+with tab3:
+    st.header("Research Topic")
+    research_topic = st.text_input("Enter topic to research:")
+    
+    if st.button("Research", key="research_btn"):
+        if research_topic:
+            with st.spinner("Researching..."):
+                try:
+                    message = client.messages.create(
+                        model=model,
+                        max_tokens=2048,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Research and provide detailed information about: {research_topic}"
+                        }]
+                    )
+                    st.success("Research Results:")
+                    st.write(message.content[0].text)
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        else:
+            st.warning("Please enter a research topic")
+
+with tab4:
+    st.header("Document Analysis")
+    
+    # Check if a document is selected
+    selected_doc = st.session_state.get('selected_doc', None)
+    
+    if selected_doc:
+        st.info(f"📄 Analyzing: **{selected_doc.title}** ({selected_doc.file_type})")
+        
+        analysis_type = st.selectbox(
+            "Select Analysis Type",
+            ["Summarize Document", "Extract Key Points", "Legal Review", "Custom Query"]
+        )
+        
+        custom_query = ""
+        if analysis_type == "Custom Query":
+            custom_query = st.text_area("Enter your question about the document:")
+        
+        if st.button("Analyze Document", key="analyze_btn"):
+            with st.spinner("Analyzing document..."):
+                try:
+                    # Prepare prompt based on analysis type
+                    if analysis_type == "Summarize Document":
+                        prompt = f"Provide a comprehensive summary of this legal document:\n\n{selected_doc.text}"
+                    elif analysis_type == "Extract Key Points":
+                        prompt = f"Extract and list the key points, clauses, and important terms from this document:\n\n{selected_doc.text}"
+                    elif analysis_type == "Legal Review":
+                        prompt = f"Perform a legal review of this document. Identify potential issues, risks, and areas that may need attention:\n\n{selected_doc.text}"
+                    else:
                         prompt = f"Document: {selected_doc.text}\n\nQuestion: {custom_query}"
                     
                     message = client.messages.create(
