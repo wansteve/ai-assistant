@@ -7,6 +7,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional
 import PyPDF2
 import docx
+from vector_store import VectorStore
 
 @dataclass
 class Document:
@@ -30,6 +31,9 @@ class DocumentProcessor:
         # Create directories if they don't exist
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.extracted_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize vector store
+        self.vector_store = VectorStore()
     
     def process_file(self, uploaded_file) -> Document:
         """Process uploaded file and return Document object"""
@@ -70,6 +74,15 @@ class DocumentProcessor:
         
         # Save extracted text and metadata
         self._save_extracted(doc)
+        
+        # Add to vector store
+        num_chunks = self.vector_store.add_document(
+            doc_id=doc.doc_id,
+            doc_title=doc.title,
+            text=doc.text,
+            page_count=doc.page_count
+        )
+        print(f"Added {num_chunks} chunks to vector store")
         
         return doc
     
@@ -137,6 +150,17 @@ class DocumentProcessor:
         documents.sort(key=lambda x: x.upload_date, reverse=True)
         return documents
     
+    def search_documents(self, query: str, top_k: int = 5):
+        """
+        Search for top-k most relevant chunks across all documents
+        Returns list of results with doc_title, chunk_text, page, and similarity
+        """
+        return self.vector_store.search(query, top_k=top_k)
+    
+    def get_vector_stats(self):
+        """Get statistics about the vector store"""
+        return self.vector_store.get_stats()
+    
     def delete_document(self, doc_id: str) -> bool:
         """Delete a document and all its associated files"""
         try:
@@ -165,6 +189,9 @@ class DocumentProcessor:
             # Delete metadata file
             if metadata_path.exists():
                 os.remove(metadata_path)
+            
+            # Delete from vector store
+            self.vector_store.delete_document(doc_id)
             
             return True
         except Exception as e:
