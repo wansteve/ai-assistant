@@ -139,27 +139,102 @@ with tab2:
             st.warning("Please enter a prompt")
 
 with tab3:
-    st.header("Research Topic")
-    research_topic = st.text_input("Enter topic to research:")
+    st.header("🔍 Research with RAG")
+    st.info("Research using Retrieval-Augmented Generation. Answers are strictly grounded in your uploaded documents with citations.")
     
-    if st.button("Research", key="research_btn"):
+    # Show if documents are available
+    stats = doc_processor.get_vector_stats()
+    if stats['total_chunks'] == 0:
+        st.warning("⚠️ No documents uploaded. Please upload documents first to use RAG research.")
+    else:
+        st.success(f"✅ {stats['total_documents']} documents indexed with {stats['total_chunks']} chunks")
+    
+    research_topic = st.text_input("Enter your research question:", placeholder="e.g., What are the key obligations in the contract?")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        num_chunks = st.slider("Number of sources to retrieve", min_value=3, max_value=15, value=8)
+    
+    if st.button("Research", key="research_btn", type="primary"):
         if research_topic:
-            with st.spinner("Researching..."):
-                try:
-                    message = client.messages.create(
-                        model=model,
-                        max_tokens=2048,
-                        messages=[{
-                            "role": "user",
-                            "content": f"Research and provide detailed information about: {research_topic}"
-                        }]
-                    )
-                    st.success("Research Results:")
-                    st.write(message.content[0].text)
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+            if stats['total_chunks'] == 0:
+                st.error("Please upload documents before using RAG research.")
+            else:
+                with st.spinner("Retrieving relevant information..."):
+                    try:
+                        # Retrieve relevant chunks
+                        results = doc_processor.search_documents(research_topic, top_k=num_chunks)
+                        
+                        if not results:
+                            st.warning("No relevant information found in your documents.")
+                        else:
+                            # Build context with citations
+                            context_parts = []
+                            sources = []
+                            
+                            for idx, result in enumerate(results, 1):
+                                page_info = f" (Page {result['page']})" if result['page'] else ""
+                                context_parts.append(f"[{idx}] From '{result['doc_title']}'{page_info}:\n{result['chunk_text']}")
+                                
+                                sources.append({
+                                    'citation': idx,
+                                    'document': result['doc_title'],
+                                    'page': result['page'],
+                                    'snippet': result['chunk_text'][:200] + "...",
+                                    'full_text': result['chunk_text'],
+                                    'similarity': result['similarity']
+                                })
+                            
+                            context = "\n\n".join(context_parts)
+                            
+                            # Create strict grounding prompt
+                            prompt = f"""You are a research assistant that provides answers strictly based on the provided sources. You must follow these rules:
+
+1. ONLY use information from the provided sources below
+2. Every statement must be cited with [1], [2], etc. matching the source numbers
+3. If the sources don't contain information to answer the question, say "The provided documents do not contain information about [topic]"
+4. Do not add any information not present in the sources
+5. Include multiple citations [1][2] when multiple sources support a point
+
+Sources:
+{context}
+
+Question: {research_topic}
+
+Provide a comprehensive answer with citations after every claim."""
+
+                            with st.spinner("Generating research answer..."):
+                                message = client.messages.create(
+                                    model=model,
+                                    max_tokens=3000,
+                                    messages=[{
+                                        "role": "user",
+                                        "content": prompt
+                                    }]
+                                )
+                                
+                                answer = message.content[0].text
+                                
+                                # Display answer
+                                st.success("📝 Research Answer:")
+                                st.markdown(answer)
+                                
+                                # Display sources
+                                st.divider()
+                                st.subheader("📚 Sources")
+                                
+                                for source in sources:
+                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                        st.markdown("**Preview:**")
+                                        st.write(source['snippet'])
+                                        
+                                        with st.expander("View full text"):
+                                            st.text_area("Full source text", source['full_text'], height=200, key=f"source_{source['citation']}")
+                                
+                    except Exception as e:
+                        st.error(f"Research error: {str(e)}")
         else:
-            st.warning("Please enter a research topic")
+            st.warning("Please enter a research question")
 
 with tab4:
     st.header("Document Analysis")
