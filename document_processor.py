@@ -1,7 +1,7 @@
 import os
 import uuid
 import json
-from datetime import datetime
+from datetime import import re
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional
@@ -95,9 +95,31 @@ class DocumentProcessor:
             
             for page_num, page in enumerate(pdf_reader.pages, 1):
                 page_text = page.extract_text()
+                # Clean up common PDF extraction issues
+                page_text = self._clean_extracted_text(page_text)
                 text_parts.append(f"--- Page {page_num} ---\n{page_text}\n")
         
         return "\n".join(text_parts), page_count
+    
+    def _clean_extracted_text(self, text: str) -> str:
+        """Clean up common PDF text extraction issues"""
+        # Fix numbers that are mashed together (e.g., "8.99are" -> "8.99 are")
+        text = re.sub(r'(\d+\.?\d*)([a-zA-Z])', r'\1 \2', text)
+        
+        # Fix words mashed together with numbers (e.g., "below8.99" -> "below $8.99")
+        text = re.sub(r'([a-zA-Z])(\d+\.?\d*)', r'\1 $\2', text)
+        
+        # Fix multiple spaces
+        text = re.sub(r' +', ' ', text)
+        
+        # Fix common ligatures that get extracted incorrectly
+        text = text.replace('ﬁ', 'fi')
+        text = text.replace('ﬂ', 'fl')
+        text = text.replace('ﬀ', 'ff')
+        text = text.replace('ﬃ', 'ffi')
+        text = text.replace('ﬄ', 'ffl')
+        
+        return text
     
     def _extract_docx(self, file_path) -> str:
         """Extract text from DOCX"""
