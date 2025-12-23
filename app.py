@@ -89,7 +89,7 @@ with st.sidebar:
     else:
         st.info("No documents uploaded yet")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research with RAG", "📄 Document Analysis", "🔎 Semantic Search"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research", "📄 Document Analysis", "🔎 Semantic Search"])
 
 with tab1:
     st.header("Summarize Text")
@@ -219,16 +219,42 @@ Provide a comprehensive answer with citations after every claim."""
                                 st.success("📝 Research Answer:")
                                 st.markdown(answer)
                                 
+                                # Analyze which sources were cited
+                                cited_sources = []
+                                uncited_sources = []
+                                
+                                for source in sources:
+                                    citation_pattern = f"[{source['citation']}]"
+                                    if citation_pattern in answer:
+                                        cited_sources.append(source)
+                                    else:
+                                        uncited_sources.append(source)
+                                
                                 # Display sources
                                 st.divider()
                                 st.subheader("📚 Sources")
                                 
-                                for source in sources:
-                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
-                                        st.markdown("**Preview:**")
-                                        st.write(source['snippet'])
-                                        st.markdown("**Full Text:**")
-                                        st.text_area("", source['full_text'], height=200, key=f"source_{source['citation']}", label_visibility="collapsed")
+                                # Display cited sources first
+                                if cited_sources:
+                                    st.markdown("**✅ Cited Sources** (used in answer above):")
+                                    for source in cited_sources:
+                                        with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                            st.markdown("**Preview:**")
+                                            st.write(source['snippet'])
+                                            st.markdown("**Full Text:**")
+                                            st.text_area("", source['full_text'], height=200, key=f"source_{source['citation']}", label_visibility="collapsed")
+                                
+                                # Display uncited sources with explanation
+                                if uncited_sources:
+                                    st.markdown("**ℹ️ Additional Retrieved Sources** (not directly cited):")
+                                    st.caption("These sources were retrieved but not cited in the answer. They may contain redundant information already covered by cited sources, or less relevant details.")
+                                    
+                                    for source in uncited_sources:
+                                        with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                            st.markdown("**Preview:**")
+                                            st.write(source['snippet'])
+                                            st.markdown("**Full Text:**")
+                                            st.text_area("", source['full_text'], height=200, key=f"source_uncited_{source['citation']}", label_visibility="collapsed")
                                 
                     except Exception as e:
                         st.error(f"Research error: {str(e)}")
