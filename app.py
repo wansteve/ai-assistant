@@ -95,30 +95,180 @@ with st.sidebar:
     else:
         st.info("No documents uploaded yet")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research with RAG", "📄 Document Analysis", "🔎 Semantic Search"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research", "📄 Document Analysis", "🔎 Semantic Search"])
 
 with tab1:
-    st.header("Summarize Text")
-    text_to_summarize = st.text_area("Enter text to summarize:", height=200)
+    st.header("📝 Document Summary with Grounding")
+    st.info("Generate grounded summaries from your uploaded documents. Every point is cited with source references.")
     
-    if st.button("Summarize", key="sum_btn"):
-        if text_to_summarize:
-            with st.spinner("Summarizing..."):
-                try:
-                    message = client.messages.create(
-                        model=model,
-                        max_tokens=1024,
-                        messages=[{
-                            "role": "user",
-                            "content": f"Summarize the following text concisely:\n\n{text_to_summarize}"
-                        }]
-                    )
-                    st.success("Summary:")
-                    st.write(message.content[0].text)
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+    # Show if documents are available
+    stats = doc_processor.get_vector_stats()
+    if stats['total_chunks'] == 0:
+        st.warning("⚠️ No documents uploaded. Please upload documents first to generate summaries.")
+    else:
+        st.success(f"✅ {stats['total_documents']} documents indexed with {stats['total_chunks']} chunks")
+    
+    # Summary mode selection
+    summary_mode = st.selectbox(
+        "Select Summary Mode",
+        ["Executive Summary", "Issue Spotting", "Chronology"],
+        help="Choose the type of summary you want to generate"
+    )
+    
+    # Topic/focus input
+    summary_topic = st.text_area(
+        "Topic or focus (optional):",
+        placeholder="e.g., contract terms, merger analysis, case facts",
+        help="Leave blank to summarize all documents, or specify a topic to focus on"
+    )
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        num_sources = st.slider("Number of sources to retrieve", min_value=5, max_value=20, value=10)
+    
+    if st.button("Generate Summary", key="sum_btn", type="primary"):
+        if stats['total_chunks'] == 0:
+            st.error("Please upload documents before generating summaries.")
         else:
-            st.warning("Please enter text to summarize")
+            with st.spinner("Retrieving relevant information..."):
+                try:
+                    # Determine search query
+                    if summary_topic.strip():
+                        search_query = summary_topic
+                    else:
+                        search_query = "main points key information important details"
+                    
+                    # Retrieve relevant chunks
+                    results = doc_processor.search_documents(search_query, top_k=num_sources)
+                    
+                    if not results:
+                        st.warning("No relevant information found in your documents.")
+                    else:
+                        # Build context with citations
+                        context_parts = []
+                        sources = []
+                        
+                        for idx, result in enumerate(results, 1):
+                            page_info = f" (Page {result['page']})" if result['page'] else ""
+                            context_parts.append(f"[{idx}] From '{result['doc_title']}'{page_info}:\n{result['chunk_text']}")
+                            
+                            sources.append({
+                                'citation': idx,
+                                'document': result['doc_title'],
+                                'page': result['page'],
+                                'snippet': result['chunk_text'][:200] + "...",
+                                'full_text': result['chunk_text'],
+                                'similarity': result['similarity']
+                            })
+                        
+                        context = "\n\n".join(context_parts)
+                        
+                        # Create mode-specific prompt
+                        if summary_mode == "Executive Summary":
+                            prompt = f"""You are creating an executive summary based strictly on the provided sources.
+
+GROUNDING RULES:
+1. Provide EXACTLY 5 key points in bullet format
+2. EVERY bullet point MUST include at least one citation [1], [2], etc.
+3. Only include information explicitly stated in the sources
+4. If a point cannot be supported by the sources, write "Not supported by provided documents" instead
+
+Sources:
+{context}
+
+Topic focus: {summary_topic if summary_topic.strip() else 'General summary of all documents'}
+
+Generate an executive summary with exactly 5 bullet points. Each bullet must cite sources [1][2] etc."""
+
+                        elif summary_mode == "Issue Spotting":
+                            prompt = f"""You are identifying issues, ambiguities, and missing facts based strictly on the provided sources.
+
+GROUNDING RULES:
+1. Identify issues, ambiguities, and missing information
+2. EVERY issue MUST include at least one citation [1], [2], etc. to show where the issue appears
+3. Only identify issues that are evident from the sources
+4. If you cannot identify issues from the sources, write "Not supported by provided documents"
+5. Format as bullet points under categories: Issues, Ambiguities, Missing Facts
+
+Sources:
+{context}
+
+Topic focus: {summary_topic if summary_topic.strip() else 'General analysis of all documents'}
+
+Identify and categorize issues with citations for each point."""
+
+                        else:  # Chronology
+                            prompt = f"""You are creating a chronological timeline based strictly on the provided sources.
+
+GROUNDING RULES:
+1. Create a timeline of events in chronological order
+2. EVERY event MUST include at least one citation [1], [2], etc.
+3. Only include events explicitly mentioned in the sources with dates or temporal references
+4. If no chronological information exists, write "Not supported by provided documents"
+5. Format as a table with columns: Date/Time | Event | Source Citation
+
+Sources:
+{context}
+
+Topic focus: {summary_topic if summary_topic.strip() else 'General chronology from all documents'}
+
+Create a chronological timeline table. Each row must cite sources."""
+
+                        with st.spinner(f"Generating {summary_mode}..."):
+                            message = client.messages.create(
+                                model=model,
+                                max_tokens=3000,
+                                messages=[{
+                                    "role": "user",
+                                    "content": prompt
+                                }]
+                            )
+                            
+                            summary = message.content[0].text
+                            
+                            # Display summary
+                            st.success(f"📋 {summary_mode}:")
+                            st.markdown(summary)
+                            
+                            # Analyze which sources were cited
+                            cited_sources = []
+                            uncited_sources = []
+                            
+                            for source in sources:
+                                citation_pattern = f"[{source['citation']}]"
+                                if citation_pattern in summary:
+                                    cited_sources.append(source)
+                                else:
+                                    uncited_sources.append(source)
+                            
+                            # Display sources
+                            st.divider()
+                            st.subheader("📚 Supporting Sources")
+                            
+                            # Display cited sources
+                            if cited_sources:
+                                st.markdown("**✅ Cited Sources:**")
+                                for source in cited_sources:
+                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                        st.markdown("**Preview:**")
+                                        st.write(source['snippet'])
+                                        st.markdown("**Full Text:**")
+                                        st.text_area("", source['full_text'], height=200, key=f"sum_source_{source['citation']}", label_visibility="collapsed")
+                            
+                            # Display uncited sources
+                            if uncited_sources:
+                                st.markdown("**ℹ️ Additional Retrieved Sources** (not cited):")
+                                st.caption("These sources were retrieved but not used in the summary.")
+                                
+                                for source in uncited_sources:
+                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                        st.markdown("**Preview:**")
+                                        st.write(source['snippet'])
+                                        st.markdown("**Full Text:**")
+                                        st.text_area("", source['full_text'], height=200, key=f"sum_uncited_{source['citation']}", label_visibility="collapsed")
+                        
+                except Exception as e:
+                    st.error(f"Summary error: {str(e)}")
 
 with tab2:
     st.header("Draft Content")
