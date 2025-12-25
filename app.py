@@ -271,28 +271,232 @@ Create a chronological timeline table. Each row must cite sources."""
                     st.error(f"Summary error: {str(e)}")
 
 with tab2:
-    st.header("Draft Content")
-    draft_prompt = st.text_input("What would you like to draft?")
-    draft_context = st.text_area("Additional context (optional):", height=150)
+    st.header("✍️ Draft Documents with Grounding")
+    st.info("Generate legal documents grounded in your uploaded documents. All facts are cited, assumptions are flagged, and open questions are identified.")
     
-    if st.button("Generate Draft", key="draft_btn"):
-        if draft_prompt:
-            with st.spinner("Generating draft..."):
-                try:
-                    message = client.messages.create(
-                        model=model,
-                        max_tokens=2048,
-                        messages=[{
-                            "role": "user",
-                            "content": f"Write a draft based on this prompt: {draft_prompt}\n\nContext: {draft_context}"
-                        }]
-                    )
-                    st.success("Draft:")
-                    st.write(message.content[0].text)
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+    # Show if documents are available
+    stats = doc_processor.get_vector_stats()
+    if stats['total_chunks'] == 0:
+        st.warning("⚠️ No documents uploaded. Please upload documents first to generate drafts.")
+    else:
+        st.success(f"✅ {stats['total_documents']} documents indexed with {stats['total_chunks']} chunks")
+    
+    # Template selection
+    template = st.selectbox(
+        "Select Document Template",
+        ["Client Update Email", "Internal Case Memo", "Demand Letter Skeleton"],
+        help="Choose the type of document you want to draft"
+    )
+    
+    # Context/instructions
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        draft_instructions = st.text_area(
+            "Drafting Instructions:",
+            placeholder="e.g., Focus on timeline of events, highlight key contractual obligations, emphasize damages",
+            height=100,
+            help="Provide specific instructions for what to include in the draft"
+        )
+    
+    with col2:
+        recipient = st.text_input("Recipient (if applicable):", placeholder="e.g., John Smith, Client")
+        num_sources = st.slider("Number of sources to retrieve", min_value=5, max_value=20, value=12)
+    
+    if st.button("Generate Draft", key="draft_btn", type="primary"):
+        if stats['total_chunks'] == 0:
+            st.error("Please upload documents before generating drafts.")
         else:
-            st.warning("Please enter a prompt")
+            with st.spinner("Retrieving relevant information..."):
+                try:
+                    # Retrieve relevant chunks
+                    search_query = draft_instructions if draft_instructions.strip() else "key facts important information"
+                    results = doc_processor.search_documents(search_query, top_k=num_sources)
+                    
+                    if not results:
+                        st.warning("No relevant information found in your documents.")
+                    else:
+                        # Build context with citations
+                        context_parts = []
+                        sources = []
+                        
+                        for idx, result in enumerate(results, 1):
+                            page_info = f" (Page {result['page']})" if result['page'] else ""
+                            context_parts.append(f"[{idx}] From '{result['doc_title']}'{page_info}:\n{result['chunk_text']}")
+                            
+                            sources.append({
+                                'citation': idx,
+                                'document': result['doc_title'],
+                                'page': result['page'],
+                                'snippet': result['chunk_text'][:200] + "...",
+                                'full_text': result['chunk_text'],
+                                'similarity': result['similarity']
+                            })
+                        
+                        context = "\n\n".join(context_parts)
+                        
+                        # Template-specific prompts
+                        if template == "Client Update Email":
+                            template_guidance = f"""Draft a professional client update email to {recipient if recipient else '[Client Name]'}.
+
+FORMAT:
+Subject: [Appropriate subject line]
+
+Dear {recipient if recipient else '[Client Name]'},
+
+[Opening paragraph with context]
+
+[Body paragraphs with updates - cite all facts with [1][2] etc.]
+
+[Closing with next steps]
+
+Best regards,
+[Your name]"""
+
+                        elif template == "Internal Case Memo":
+                            template_guidance = """Draft an internal case memorandum.
+
+FORMAT:
+TO: [Team/Supervisor]
+FROM: [Your name]
+RE: [Case name/matter]
+DATE: [Date]
+
+SUMMARY:
+[Brief overview with key facts - cite sources [1][2]]
+
+FACTS:
+[Detailed factual background - every fact must cite sources]
+
+ANALYSIS:
+[Legal analysis based on facts - cite supporting sources]
+
+RECOMMENDATION:
+[Recommended course of action]"""
+
+                        else:  # Demand Letter Skeleton
+                            template_guidance = f"""Draft a demand letter skeleton to {recipient if recipient else '[Recipient]'}.
+
+FORMAT:
+[Date]
+
+{recipient if recipient else '[Recipient Name]'}
+[Address]
+
+Re: [Matter description]
+
+Dear {recipient if recipient else '[Recipient]'}:
+
+[Opening - establish relationship/context]
+
+[Statement of facts - cite all facts with [1][2]]
+
+[Statement of claims/demands - cite supporting sources]
+
+[Demand for relief/action]
+
+[Consequences if demand not met]
+
+Sincerely,
+[Your name]"""
+
+                        # Create comprehensive prompt
+                        prompt = f"""You are drafting a legal document based strictly on provided sources.
+
+CRITICAL GROUNDING RULES:
+1. Every factual statement MUST cite sources using [1], [2], etc.
+2. If you make an assumption or inference, explicitly label it as "ASSUMPTION: [statement]"
+3. Do NOT invent facts - only use information from the sources
+4. Identify gaps in information as open questions
+
+TEMPLATE GUIDANCE:
+{template_guidance}
+
+DRAFTING INSTRUCTIONS:
+{draft_instructions if draft_instructions.strip() else 'Create a comprehensive document based on available information'}
+
+SOURCES:
+{context}
+
+Generate the document in four sections:
+
+**SECTION 1: DRAFT**
+[The actual document following the template format. Cite all facts with [1][2] etc. Label assumptions clearly.]
+
+**SECTION 2: FACTS USED (WITH CITATIONS)**
+List all factual statements used in the draft with their citations:
+- [Fact 1] [1][2]
+- [Fact 2] [3]
+etc.
+
+**SECTION 3: OPEN QUESTIONS / MISSING INFORMATION**
+Identify information gaps that would strengthen the document:
+- [Question/gap 1]
+- [Question/gap 2]
+etc.
+
+**SECTION 4: RISKS / ASSUMPTIONS**
+List any assumptions made and potential risks:
+- ASSUMPTION: [Any assumptions made]
+- RISK: [Potential weaknesses or risks]
+etc.
+
+Generate all four sections."""
+
+                        with st.spinner(f"Generating {template}..."):
+                            message = client.messages.create(
+                                model=model,
+                                max_tokens=4096,
+                                messages=[{
+                                    "role": "user",
+                                    "content": prompt
+                                }]
+                            )
+                            
+                            output = message.content[0].text
+                            
+                            # Display the output
+                            st.success(f"📄 {template} Generated:")
+                            st.markdown(output)
+                            
+                            # Analyze which sources were cited
+                            cited_sources = []
+                            uncited_sources = []
+                            
+                            for source in sources:
+                                citation_pattern = f"[{source['citation']}]"
+                                if citation_pattern in output:
+                                    cited_sources.append(source)
+                                else:
+                                    uncited_sources.append(source)
+                            
+                            # Display sources
+                            st.divider()
+                            st.subheader("📚 Source Documents")
+                            
+                            # Display cited sources
+                            if cited_sources:
+                                st.markdown("**✅ Cited Sources:**")
+                                for source in cited_sources:
+                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                        st.markdown("**Preview:**")
+                                        st.write(source['snippet'])
+                                        st.markdown("**Full Text:**")
+                                        st.text_area("", source['full_text'], height=200, key=f"draft_source_{source['citation']}", label_visibility="collapsed")
+                            
+                            # Display uncited sources
+                            if uncited_sources:
+                                st.markdown("**ℹ️ Additional Retrieved Sources** (not cited):")
+                                st.caption("These sources were retrieved but not used in the draft.")
+                                
+                                for source in uncited_sources:
+                                    with st.expander(f"[{source['citation']}] {source['document']}" + (f" - Page {source['page']}" if source['page'] else "") + f" (Relevance: {source['similarity']:.2%})"):
+                                        st.markdown("**Preview:**")
+                                        st.write(source['snippet'])
+                                        st.markdown("**Full Text:**")
+                                        st.text_area("", source['full_text'], height=200, key=f"draft_uncited_{source['citation']}", label_visibility="collapsed")
+                        
+                except Exception as e:
+                    st.error(f"Drafting error: {str(e)}")
 
 with tab3:
     st.header("🔍 Research with RAG")
