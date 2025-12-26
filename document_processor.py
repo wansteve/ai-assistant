@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict
@@ -8,7 +9,6 @@ from typing import Optional
 import PyPDF2
 import docx
 from vector_store import VectorStore
-
 
 @dataclass
 class Document:
@@ -103,16 +103,24 @@ class DocumentProcessor:
         return "\n".join(text_parts), page_count
     
     def _clean_extracted_text(self, text: str) -> str:
-        """Clean up common PDF text extraction issues"""
-        import re
+        """Clean up common PDF and DOCX text extraction issues"""
+        # Fix specific currency/measurement patterns first (most specific)
+        # "27.75per" -> "$27.75 per"
+        text = re.sub(r'(\d+\.?\d*)per([A-Z])', r'$\1 per \2', text)
         
-        # Fix numbers that are mashed together (e.g., "8.99are" -> "8.99 are")
-        text = re.sub(r'(\d+\.?\d*)([a-zA-Z])', r'\1 \2', text)
+        # Fix currency amounts without $ followed by common words
+        # "23.25in" -> "$23.25 in", "4.50and" -> "$4.50 and"
+        text = re.sub(r'\b(\d+\.?\d*)(in|and|or|to|from|for|per|at)\b', r'$\1 \2', text)
         
-        # Fix words mashed together with numbers (e.g., "below8.99" -> "below 8.99")
+        # Fix numbers directly mashed with letters (general case)
+        # e.g., "82.7billion" -> "$82.7 billion", "value72.0" -> "value $72.0"
+        text = re.sub(r'(\d+\.?\d*)([a-zA-Z])', r'$\1 \2', text)
         text = re.sub(r'([a-zA-Z])(\d+\.?\d*)', r'\1 $\2', text)
         
-        # Fix multiple spaces
+        # Clean up multiple dollar signs that might have been created
+        text = re.sub(r'\$+', '$', text)
+        
+        # Clean up multiple spaces
         text = re.sub(r' +', ' ', text)
         
         # Fix common ligatures that get extracted incorrectly
