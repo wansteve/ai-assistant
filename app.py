@@ -1,6 +1,10 @@
 import streamlit as st
 import anthropic
 from document_processor import DocumentProcessor, Document
+from matter_manager import MatterManager, Matter
+from export_utils import export_draft_to_docx, export_research_to_markdown, export_summary_to_markdown, create_matter_report
+from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(page_title="Steve Wan's AI Legal Assistant", layout="wide")
 
@@ -10,8 +14,14 @@ def get_document_processor():
     """Initialize document processor (cached to avoid reloading)"""
     return DocumentProcessor()
 
-# Get document processor
+@st.cache_resource
+def get_matter_manager():
+    """Initialize matter manager (cached)"""
+    return MatterManager()
+
+# Get processors
 doc_processor = get_document_processor()
+matter_manager = get_matter_manager()
 
 # Get API key from Streamlit secrets (for cloud deployment)
 # or from local config for local testing
@@ -34,9 +44,83 @@ client = anthropic.Anthropic(api_key=api_key)
 
 st.title("⚖️ Steve Wan's AI Legal Assistant")
 
+# Matter Management Section at the top
+st.markdown("---")
+col1, col2, col3 = st.columns([2, 2, 1])
+
+with col1:
+    st.subheader("📁 Current Matter")
+    matters = matter_manager.list_matters()
+    
+    if matters:
+        matter_options = ["[No Matter Selected]"] + [f"{m.matter_name} - {m.client_name}" for m in matters]
+        selected_matter_idx = st.selectbox(
+            "Select a matter:",
+            range(len(matter_options)),
+            format_func=lambda x: matter_options[x],
+            key="matter_select"
+        )
+        
+        if selected_matter_idx > 0:
+            st.session_state['current_matter'] = matters[selected_matter_idx - 1]
+        else:
+            st.session_state['current_matter'] = None
+    else:
+        st.info("No matters created yet. Create one below.")
+        st.session_state['current_matter'] = None
+
+with col2:
+    if st.session_state.get('current_matter'):
+        matter = st.session_state['current_matter']
+        st.write(f"**Client:** {matter.client_name}")
+        st.write(f"**Documents:** {len(matter.doc_ids)}")
+        st.write(f"**History:** {len(matter.history)} actions")
+    else:
+        st.write("*No matter selected*")
+
+with col3:
+    if st.button("➕ New Matter", key="new_matter_btn"):
+        st.session_state['show_create_matter'] = True
+
+# Create Matter Form
+if st.session_state.get('show_create_matter'):
+    with st.form("create_matter_form"):
+        st.subheader("Create New Matter")
+        matter_name = st.text_input("Matter Name:", placeholder="e.g., Smith v. Jones Contract Dispute")
+        client_name = st.text_input("Client Name:", placeholder="e.g., John Smith")
+        description = st.text_area("Description:", placeholder="Brief description of the matter")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("Create Matter"):
+                if matter_name and client_name:
+                    new_matter = matter_manager.create_matter(matter_name, client_name, description)
+                    st.session_state['current_matter'] = new_matter
+                    st.session_state['show_create_matter'] = False
+                    st.success(f"Matter '{matter_name}' created!")
+                    st.rerun()
+                else:
+                    st.error("Matter name and client name are required")
+        with col2:
+            if st.form_submit_button("Cancel"):
+                st.session_state['show_create_matter'] = False
+                st.rerun()
+
+st.markdown("---")
+
 # Sidebar for document upload and management
 with st.sidebar:
     st.header("📄 Document Management")
+    
+    # Show current matter context
+    current_matter = st.session_state.get('current_matter')
+    if current_matter:
+        st.success(f"**Matter:** {current_matter.matter_name}")
+        st.caption(f"Client: {current_matter.client_name}")
+    else:
+        st.warning("No matter selected")
+    
+    st.divider()
     
     # File upload
     uploaded_file = st.file_uploader(
@@ -50,7 +134,21 @@ with st.sidebar:
             with st.spinner("Processing document..."):
                 try:
                     doc = doc_processor.process_file(uploaded_file)
-                    st.success(f"✅ Document processed: {doc.title}")
+                    
+                    # Add to current matter if one is selected
+                    if current_matter:
+                        matter_manager.add_document_to_matter(current_matter.matter_id, doc.doc_id)
+                        matter_manager.add_history(
+                            current_matter.matter_id,
+                            "upload",
+                            f"Uploaded document: {doc.title}",
+                            f"Document ID: {doc.doc_id}"
+                        )
+                        st.success(f"✅ Document added to matter: {doc.title}")
+                    else:
+                        st.success(f"✅ Document processed: {doc.title}")
+                        st.info("💡 Select a matter to associate this document")
+                    
                     st.json({
                         "Document ID": doc.doc_id,
                         "Title": doc.title,
@@ -63,14 +161,22 @@ with st.sidebar:
     
     # List uploaded documents
     st.divider()
-    st.subheader("Uploaded Documents")
-    documents = doc_processor.list_documents()
+    st.subheader("Documents")
+    
+    # Filter documents by current matter if selected
+    if current_matter:
+        documents = [doc_processor.get_document(doc_id) for doc_id in current_matter.doc_ids]
+        documents = [d for d in documents if d is not None]
+        st.caption(f"Showing {len(documents)} document(s) in this matter")
+    else:
+        documents = doc_processor.list_documents()
+        st.caption(f"Showing all {len(documents)} document(s)")
     
     if documents:
         for doc in documents:
             with st.expander(f"📄 {doc.title}"):
                 st.write(f"**Type:** {doc.file_type}")
-                st.write(f"**ID:** {doc.doc_id}")
+                st.write(f"**ID:** {doc.doc_id[:8]}...")
                 if doc.page_count:
                     st.write(f"**Pages:** {doc.page_count}")
                 st.write(f"**Uploaded:** {doc.upload_date[:10]}")
@@ -85,6 +191,9 @@ with st.sidebar:
                 with col2:
                     if st.button(f"🗑️ Delete", key=f"del_{doc.doc_id}", type="secondary"):
                         if doc_processor.delete_document(doc.doc_id):
+                            # Remove from current matter if applicable
+                            if current_matter and doc.doc_id in current_matter.doc_ids:
+                                matter_manager.remove_document_from_matter(current_matter.matter_id, doc.doc_id)
                             # Clear selection if this was the selected doc
                             if st.session_state.get('selected_doc') and st.session_state['selected_doc'].doc_id == doc.doc_id:
                                 st.session_state['selected_doc'] = None
@@ -94,6 +203,29 @@ with st.sidebar:
                             st.error("Failed to delete document")
     else:
         st.info("No documents uploaded yet")
+    
+    # Matter History
+    if current_matter and current_matter.history:
+        st.divider()
+        st.subheader("📜 Matter History")
+        for entry in reversed(current_matter.history[-5:]):  # Show last 5
+            with st.expander(f"{entry.action_type.title()} - {entry.timestamp[:10]}"):
+                st.caption(entry.description)
+    
+    # Export Matter Report
+    if current_matter:
+        st.divider()
+        if st.button("📥 Export Matter Report"):
+            matter_docs = [doc_processor.get_document(doc_id) for doc_id in current_matter.doc_ids]
+            matter_docs = [d for d in matter_docs if d is not None]
+            report_md = create_matter_report(current_matter, matter_docs, current_matter.history)
+            
+            st.download_button(
+                label="Download Matter Report (MD)",
+                data=report_md,
+                file_name=f"{current_matter.matter_name.replace(' ', '_')}_report.md",
+                mime="text/markdown"
+            )
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Summarize", "✍️ Draft", "🔍 Research", "📄 Document Analysis", "🔎 Semantic Search"])
 
@@ -229,6 +361,31 @@ Create a chronological timeline table. Each row must cite sources."""
                             # Display summary
                             st.success(f"📋 {summary_mode}:")
                             st.markdown(summary)
+                            
+                            # Save to matter history
+                            current_matter = st.session_state.get('current_matter')
+                            if current_matter:
+                                cited_nums = [s['citation'] for s in sources if f"[{s['citation']}]" in summary]
+                                matter_manager.add_history(
+                                    current_matter.matter_id,
+                                    "summary",
+                                    f"{summary_mode}: {summary_topic if summary_topic else 'General'}",
+                                    summary,
+                                    cited_nums
+                                )
+                            
+                            # Export button
+                            summary_md = export_summary_to_markdown(summary,
+                                current_matter.matter_name if current_matter else "Summary",
+                                sources, summary_mode)
+                            
+                            st.download_button(
+                                label="📥 Download Summary (Markdown)",
+                                data=summary_md,
+                                file_name=f"summary_{summary_mode.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                                mime="text/markdown",
+                                key="download_summary"
+                            )
                             
                             # Analyze which sources were cited
                             cited_sources = []
@@ -458,6 +615,50 @@ Generate all four sections."""
                             st.success(f"📄 {template} Generated:")
                             st.markdown(output)
                             
+                            # Save to matter history
+                            current_matter = st.session_state.get('current_matter')
+                            if current_matter:
+                                cited_nums = [s['citation'] for s in sources if f"[{s['citation']}]" in output]
+                                matter_manager.add_history(
+                                    current_matter.matter_id,
+                                    "draft",
+                                    f"{template}: {draft_instructions[:50] if draft_instructions else 'Generated'}...",
+                                    output,
+                                    cited_nums
+                                )
+                            
+                            # Export buttons
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Export to DOCX
+                                docx_file = export_draft_to_docx(output,
+                                    current_matter.matter_name if current_matter else template,
+                                    sources)
+                                
+                                # Save DOCX to bytes
+                                docx_bytes = BytesIO()
+                                docx_file.save(docx_bytes)
+                                docx_bytes.seek(0)
+                                
+                                st.download_button(
+                                    label="📥 Download Draft (DOCX)",
+                                    data=docx_bytes,
+                                    file_name=f"draft_{template.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key="download_draft_docx"
+                                )
+                            
+                            with col2:
+                                # Export to Markdown
+                                st.download_button(
+                                    label="📥 Download Draft (Markdown)",
+                                    data=output,
+                                    file_name=f"draft_{template.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                                    mime="text/markdown",
+                                    key="download_draft_md"
+                                )
+                            
                             # Analyze which sources were cited
                             cited_sources = []
                             uncited_sources = []
@@ -578,6 +779,31 @@ Provide a comprehensive answer with citations after every claim."""
                                 # Display answer
                                 st.success("📝 Research Answer:")
                                 st.markdown(answer)
+                                
+                                # Save to matter history
+                                current_matter = st.session_state.get('current_matter')
+                                if current_matter:
+                                    cited_nums = [s['citation'] for s in sources if f"[{s['citation']}]" in answer]
+                                    matter_manager.add_history(
+                                        current_matter.matter_id,
+                                        "research",
+                                        f"Research: {research_topic}",
+                                        answer,
+                                        cited_nums
+                                    )
+                                
+                                # Export button
+                                research_md = export_research_to_markdown(answer, 
+                                    current_matter.matter_name if current_matter else "Research Report",
+                                    sources, research_topic)
+                                
+                                st.download_button(
+                                    label="📥 Download Research Report (Markdown)",
+                                    data=research_md,
+                                    file_name=f"research_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                                    mime="text/markdown",
+                                    key="download_research"
+                                )
                                 
                                 # Analyze which sources were cited
                                 cited_sources = []
