@@ -1,7 +1,6 @@
 import os
 import uuid
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict
@@ -104,10 +103,12 @@ class DocumentProcessor:
     
     def _clean_extracted_text(self, text: str) -> str:
         """Clean up common PDF text extraction issues"""
+        import re
+        
         # Fix numbers that are mashed together (e.g., "8.99are" -> "8.99 are")
         text = re.sub(r'(\d+\.?\d*)([a-zA-Z])', r'\1 \2', text)
         
-        # Fix words mashed together with numbers (e.g., "below8.99" -> "below $8.99")
+        # Fix words mashed together with numbers (e.g., "below8.99" -> "below 8.99")
         text = re.sub(r'([a-zA-Z])(\d+\.?\d*)', r'\1 $\2', text)
         
         # Fix multiple spaces
@@ -131,7 +132,12 @@ class DocumentProcessor:
             if para.text.strip():
                 text_parts.append(para.text)
         
-        return "\n\n".join(text_parts)
+        full_text = "\n\n".join(text_parts)
+        
+        # Apply text cleaning to fix concatenated text
+        full_text = self._clean_extracted_text(full_text)
+        
+        return full_text
     
     def _extract_txt(self, file_path) -> str:
         """Extract text from TXT"""
