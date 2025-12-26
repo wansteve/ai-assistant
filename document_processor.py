@@ -9,6 +9,7 @@ import PyPDF2
 import docx
 from vector_store import VectorStore
 
+
 @dataclass
 class Document:
     doc_id: str
