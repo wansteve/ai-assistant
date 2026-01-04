@@ -1078,13 +1078,15 @@ with tab6:
                                     st.write(f"**Result:** {passed_count}/{total_count} tests passed")
                                     st.write("")
                                     
+                                    # Display test results without nested expanders
                                     for test in verification_report:
                                         status_icon = "✅" if test.get('pass_fail') else "❌"
-                                        with st.expander(f"{status_icon} {test['test']}", expanded=not test.get('pass_fail')):
-                                            st.write(f"**Status:** {'PASSED' if test.get('pass_fail') else 'FAILED'}")
-                                            st.write(f"**Details:** {test.get('details', 'N/A')}")
-                                            if test.get('blocked_step'):
-                                                st.write(f"**Blocked Step:** {test['blocked_step']}")
+                                        st.markdown(f"**{status_icon} {test['test']}**")
+                                        st.write(f"  - Status: {'PASSED' if test.get('pass_fail') else 'FAILED'}")
+                                        st.write(f"  - Details: {test.get('details', 'N/A')}")
+                                        if test.get('blocked_step'):
+                                            st.write(f"  - Blocked Step: {test['blocked_step']}")
+                                        st.write("")
                                 
                                 break
                     
