@@ -1050,9 +1050,47 @@ with tab6:
                     st.write(f"**Current Step:** Phase {run.current_step}")
                     
                     if run.error_message:
-                        st.error(f"Error: {run.error_message}")
+                        st.error(f"**Error:** {run.error_message}")
+                        
+                        # Show detailed correction plan for failed runs
+                        for idx, step_result in enumerate(run.step_results):
+                            if step_result.status == StepStatus.FAILED:
+                                st.subheader(f"❌ Failed Step Details - Phase {idx}")
+                                
+                                # Show errors
+                                if step_result.errors:
+                                    st.error("**Error Details:**")
+                                    for error in step_result.errors:
+                                        st.write(f"• {error}")
+                                
+                                # Show correction plan if available
+                                if 'correction_plan' in step_result.artifacts:
+                                    st.warning("**📋 Correction Plan:**")
+                                    st.markdown(step_result.artifacts['correction_plan'])
+                                
+                                # Show verification report if this was Phase 8
+                                if step_result.step_id == "phase_8_verification" and 'verification_report' in step_result.artifacts:
+                                    st.info("**📊 Verification Test Results:**")
+                                    verification_report = step_result.artifacts['verification_report']
+                                    
+                                    passed_count = sum(1 for t in verification_report if t.get('pass_fail'))
+                                    total_count = len(verification_report)
+                                    st.write(f"**Result:** {passed_count}/{total_count} tests passed")
+                                    st.write("")
+                                    
+                                    for test in verification_report:
+                                        status_icon = "✅" if test.get('pass_fail') else "❌"
+                                        with st.expander(f"{status_icon} {test['test']}", expanded=not test.get('pass_fail')):
+                                            st.write(f"**Status:** {'PASSED' if test.get('pass_fail') else 'FAILED'}")
+                                            st.write(f"**Details:** {test.get('details', 'N/A')}")
+                                            if test.get('blocked_step'):
+                                                st.write(f"**Blocked Step:** {test['blocked_step']}")
+                                
+                                break
                     
                     # Show step status
+                    st.write("")
+                    st.write("**Phase Execution Status:**")
                     for idx, step_result in enumerate(run.step_results):
                         step_status_emoji = {
                             StepStatus.COMPLETED: "✅",
@@ -1067,6 +1105,10 @@ with tab6:
                     if run.status == WorkflowStatus.COMPLETED:
                         if st.button(f"📥 View Artifacts", key=f"view_artifacts_{run.run_id}"):
                             st.session_state[f'viewing_run_{run.run_id}'] = True
+                    elif run.status == WorkflowStatus.FAILED:
+                        # Add button to view partial artifacts even for failed runs
+                        if st.button(f"📥 View Partial Artifacts", key=f"view_partial_{run.run_id}"):
+                            st.session_state[f'viewing_run_{run.run_id}'] = True
             
             st.divider()
         
@@ -1075,8 +1117,49 @@ with tab6:
             if st.session_state.get(f'viewing_run_{run.run_id}'):
                 st.subheader(f"📄 Workflow Artifacts - Run {run.run_id[:8]}...")
                 
-                # Get final artifacts from Phase 10
-                if len(run.step_results) > 10 and run.step_results[10].artifacts:
+                # For failed runs, show what we have from Phase 7 (memo drafting)
+                if run.status == WorkflowStatus.FAILED:
+                    st.warning("⚠️ This workflow run failed verification. Showing partial artifacts from completed phases.")
+                    
+                    # Try to show the memo from Phase 7 if available
+                    if len(run.step_results) > 7 and run.step_results[7].artifacts:
+                        phase_7_artifacts = run.step_results[7].artifacts
+                        
+                        if 'research_memo' in phase_7_artifacts:
+                            with st.expander("📝 Draft Research Memo (Failed Verification)", expanded=True):
+                                st.info("This memo was generated but failed verification tests. Review the correction plan above before using.")
+                                st.markdown(phase_7_artifacts['research_memo'])
+                    
+                    # Show what verification tests failed
+                    if len(run.step_results) > 8 and run.step_results[8].artifacts:
+                        phase_8_artifacts = run.step_results[8].artifacts
+                        
+                        if 'verification_report' in phase_8_artifacts:
+                            with st.expander("❌ Verification Report (FAILED)", expanded=True):
+                                verification_report = phase_8_artifacts['verification_report']
+                                
+                                for test in verification_report:
+                                    status_icon = "✅" if test.get('pass_fail') else "❌"
+                                    st.write(f"{status_icon} **{test['test']}**: {test.get('details', 'N/A')}")
+                        
+                        if 'correction_plan' in phase_8_artifacts:
+                            with st.expander("📋 Correction Plan", expanded=True):
+                                st.markdown(phase_8_artifacts['correction_plan'])
+                    
+                    # Show authority table if available
+                    if len(run.step_results) > 3 and run.step_results[3].artifacts:
+                        if 'validated_authorities' in run.step_results[3].artifacts:
+                            with st.expander("📚 Authority Table"):
+                                authorities = run.step_results[3].artifacts['validated_authorities']
+                                if authorities:
+                                    for auth in authorities:
+                                        name = auth.get('name', auth.get('caption', 'N/A'))
+                                        status = auth.get('precedential_status', 'unknown')
+                                        status_emoji = "⚠️" if status == "negative_treatment_found" else "✅"
+                                        st.write(f"{status_emoji} **{name}** ({auth.get('type', 'case')}) - {status}")
+                
+                # Get final artifacts from Phase 10 (for successful runs)
+                elif len(run.step_results) > 10 and run.step_results[10].artifacts:
                     final_artifacts = run.step_results[10].artifacts
                     
                     # Display memo
