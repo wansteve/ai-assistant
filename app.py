@@ -1123,21 +1123,75 @@ with tab6:
                 if run.status == WorkflowStatus.FAILED:
                     st.warning("⚠️ This workflow run failed verification. Showing partial artifacts from completed phases.")
                     
+                    # Show detailed debugging info for quote accuracy failures
+                    if len(run.step_results) > 8 and run.step_results[8].artifacts:
+                        phase_8_artifacts = run.step_results[8].artifacts
+                        
+                        if 'verification_report' in phase_8_artifacts:
+                            verification_report = phase_8_artifacts['verification_report']
+                            
+                            # Check if quote accuracy failed
+                            quote_test = next((t for t in verification_report if 'Quote Accuracy' in t.get('test', '')), None)
+                            if quote_test and not quote_test.get('pass_fail'):
+                                st.error("**🔍 Quote Accuracy Debugging Information**")
+                                st.write(f"**Error:** {quote_test.get('details', 'N/A')}")
+                                
+                                # Show the rules that were extracted
+                                if len(run.step_results) > 5 and run.step_results[5].artifacts:
+                                    rules = run.step_results[5].artifacts.get('rules', [])
+                                    if rules:
+                                        with st.expander("📋 View All Extracted Rules (Phase 5)", expanded=True):
+                                            st.write(f"**Total Rules Extracted:** {len(rules)}")
+                                            st.write("")
+                                            
+                                            for rule in rules:
+                                                st.markdown(f"**Rule ID:** `{rule.get('rule_id')}`")
+                                                st.write(f"**Quoted Text:** \"{rule.get('quoted_text', 'N/A')}\"")
+                                                st.write(f"**Citation ID:** {rule.get('citation_id', 'N/A')}")
+                                                st.write(f"**Court:** {rule.get('court', 'N/A')}")
+                                                st.write(f"**Precedential Status:** {rule.get('precedential_status', 'unknown')}")
+                                                st.divider()
+                                
+                                # Show the sources that were used
+                                if len(run.step_results) > 5 and run.step_results[5].sources_used:
+                                    with st.expander("📚 View Sources Used (Phase 5)", expanded=True):
+                                        sources = run.step_results[5].sources_used
+                                        st.write(f"**Total Sources:** {len(sources)}")
+                                        st.write("")
+                                        
+                                        for source in sources:
+                                            st.markdown(f"**Source ID/Citation:** {source.get('id', source.get('citation', 'N/A'))}")
+                                            st.write(f"**Document:** {source.get('document', 'N/A')}")
+                                            if source.get('page'):
+                                                st.write(f"**Page:** {source['page']}")
+                                            st.write(f"**Text Excerpt:**")
+                                            st.text_area("", source.get('chunk_text', 'N/A')[:500], height=150, key=f"source_{source.get('id')}", label_visibility="collapsed")
+                                            st.divider()
+                    
                     # Try to show the memo from Phase 7 if available
                     if len(run.step_results) > 7 and run.step_results[7].artifacts:
                         phase_7_artifacts = run.step_results[7].artifacts
                         
                         if 'research_memo' in phase_7_artifacts:
                             with st.expander("📝 Draft Research Memo (Failed Verification)", expanded=True):
-                                st.info("This memo was generated but failed verification tests. Review the correction plan above before using.")
+                                st.info("⚠️ This memo was generated but failed verification tests. Review the correction plan and debugging info above before using.")
                                 st.markdown(phase_7_artifacts['research_memo'])
+                                
+                                # Add download button for the failed memo
+                                st.download_button(
+                                    "📥 Download Draft Memo (MD)",
+                                    phase_7_artifacts['research_memo'],
+                                    f"draft_memo_FAILED_{run.run_id[:8]}.md",
+                                    mime="text/markdown",
+                                    key=f"download_failed_memo_{run.run_id}"
+                                )
                     
                     # Show what verification tests failed
                     if len(run.step_results) > 8 and run.step_results[8].artifacts:
                         phase_8_artifacts = run.step_results[8].artifacts
                         
                         if 'verification_report' in phase_8_artifacts:
-                            with st.expander("❌ Verification Report (FAILED)", expanded=True):
+                            with st.expander("❌ Complete Verification Report", expanded=False):
                                 verification_report = phase_8_artifacts['verification_report']
                                 
                                 for test in verification_report:
@@ -1145,7 +1199,7 @@ with tab6:
                                     st.write(f"{status_icon} **{test['test']}**: {test.get('details', 'N/A')}")
                         
                         if 'correction_plan' in phase_8_artifacts:
-                            with st.expander("📋 Correction Plan", expanded=True):
+                            with st.expander("📋 Correction Plan", expanded=False):
                                 st.markdown(phase_8_artifacts['correction_plan'])
                     
                     # Show authority table if available
@@ -1159,6 +1213,19 @@ with tab6:
                                         status = auth.get('precedential_status', 'unknown')
                                         status_emoji = "⚠️" if status == "negative_treatment_found" else "✅"
                                         st.write(f"{status_emoji} **{name}** ({auth.get('type', 'case')}) - {status}")
+                    
+                    # Show issue tree if available
+                    if len(run.step_results) > 4 and run.step_results[4].artifacts:
+                        if 'issue_tree' in run.step_results[4].artifacts:
+                            with st.expander("🌳 Issue Tree"):
+                                issue_tree = run.step_results[4].artifacts['issue_tree']
+                                for idx, issue in enumerate(issue_tree, 1):
+                                    st.markdown(f"**Issue {idx}:** {issue.get('element', 'N/A')}")
+                                    st.write(f"  - Authority IDs: {', '.join(issue.get('authority_ids', []))}")
+                                    st.write(f"  - Uncertainty: {'Yes' if issue.get('uncertainty_flag') else 'No'}")
+                                    if issue.get('notes'):
+                                        st.caption(f"  Notes: {issue['notes'][:200]}...")
+                                    st.write("")
                 
                 # Get final artifacts from Phase 10 (for successful runs)
                 elif len(run.step_results) > 10 and run.step_results[10].artifacts:
