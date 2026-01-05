@@ -1159,13 +1159,20 @@ with tab6:
                                         st.write(f"**Total Sources:** {len(sources)}")
                                         st.write("")
                                         
-                                        for source in sources:
+                                        for idx, source in enumerate(sources):
                                             st.markdown(f"**Source ID/Citation:** {source.get('id', source.get('citation', 'N/A'))}")
                                             st.write(f"**Document:** {source.get('document', 'N/A')}")
                                             if source.get('page'):
                                                 st.write(f"**Page:** {source['page']}")
                                             st.write(f"**Text Excerpt:**")
-                                            st.text_area("", source.get('chunk_text', 'N/A')[:500], height=150, key=f"source_{source.get('id')}", label_visibility="collapsed")
+                                            # Use unique key combining run_id, source index, and source id
+                                            st.text_area(
+                                                "Source text",
+                                                source.get('chunk_text', 'N/A')[:500], 
+                                                height=150, 
+                                                key=f"source_text_{run.run_id}_{idx}_{source.get('id', 'unknown')}", 
+                                                label_visibility="collapsed"
+                                            )
                                             st.divider()
                     
                     # Try to show the memo from Phase 7 if available
