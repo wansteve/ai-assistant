@@ -1,0 +1,171 @@
+[
+  {
+    "workflow_id": "litigation_research_memo_v1",
+    "name": "Verifiability-First Litigation Research Memo",
+    "description": "Multi-phase workflow for creating grounded legal research memos with citation verification",
+    "input_schema": {
+      "required": [
+        "research_question",
+        "jurisdictions",
+        "court_level",
+        "matter_posture"
+      ],
+      "optional": [
+        "known_facts",
+        "adverse_authority_awareness",
+        "risk_posture",
+        "memo_format_preference"
+      ],
+      "fields": {
+        "research_question": {
+          "type": "text",
+          "label": "Research Question"
+        },
+        "jurisdictions": {
+          "type": "multi_select",
+          "label": "Jurisdiction(s)"
+        },
+        "court_level": {
+          "type": "select",
+          "label": "Court Level",
+          "options": [
+            "trial",
+            "appellate",
+            "supreme"
+          ]
+        },
+        "matter_posture": {
+          "type": "select",
+          "label": "Matter Posture",
+          "options": [
+            "MTD",
+            "SJ",
+            "appeal",
+            "discovery",
+            "trial",
+            "other"
+          ]
+        },
+        "known_facts": {
+          "type": "textarea",
+          "label": "Known Facts (optional)"
+        },
+        "adverse_authority_awareness": {
+          "type": "boolean",
+          "label": "Aware of adverse authority?"
+        },
+        "risk_posture": {
+          "type": "select",
+          "label": "Risk Posture",
+          "options": [
+            "conservative",
+            "neutral",
+            "aggressive"
+          ],
+          "default": "neutral"
+        },
+        "memo_format_preference": {
+          "type": "select",
+          "label": "Memo Format",
+          "options": [
+            "IRAC",
+            "CREAC",
+            "narrative"
+          ],
+          "default": "IRAC"
+        }
+      }
+    },
+    "steps": [
+      {
+        "step_id": "phase_0_intake",
+        "name": "Human Intake & Framing",
+        "description": "Validate inputs and frame the research question",
+        "phase_number": 0,
+        "is_verifiable": false,
+        "requires_human_input": true
+      },
+      {
+        "step_id": "phase_1_authority_grounding",
+        "name": "Authority Grounding",
+        "description": "Retrieve statutes/rules/doctrines from local documents",
+        "phase_number": 1,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_2_case_law_retrieval",
+        "name": "Case Law Retrieval",
+        "description": "Retrieve relevant cases/opinions from local documents",
+        "phase_number": 2,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_3_authority_validation",
+        "name": "Authority Validation",
+        "description": "Check for negative treatment signals in documents",
+        "phase_number": 3,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_4_issue_decomposition",
+        "name": "Issue Decomposition",
+        "description": "Build issue tree with elements and sub-issues",
+        "phase_number": 4,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_5_rule_extraction",
+        "name": "Rule Extraction",
+        "description": "Extract governing tests/elements/standards with quotes",
+        "phase_number": 5,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_6_rule_application",
+        "name": "Rule Application to Facts",
+        "description": "Apply rules to facts with conditional framing",
+        "phase_number": 6,
+        "is_verifiable": false,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_7_memo_drafting",
+        "name": "Memo Drafting",
+        "description": "Draft research memo with all required sections",
+        "phase_number": 7,
+        "is_verifiable": false,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_8_verification",
+        "name": "Verification Suite",
+        "description": "Run HARD GATE verification tests",
+        "phase_number": 8,
+        "is_verifiable": true,
+        "requires_human_input": false
+      },
+      {
+        "step_id": "phase_9_human_review",
+        "name": "Human Review & Judgment",
+        "description": "Mandatory human review before finalization",
+        "phase_number": 9,
+        "is_verifiable": true,
+        "requires_human_input": true
+      },
+      {
+        "step_id": "phase_10_export",
+        "name": "Export & Audit Pack",
+        "description": "Generate final exports and audit bundle",
+        "phase_number": 10,
+        "is_verifiable": true,
+        "requires_human_input": false
+      }
+    ],
+    "version": "1.0"
+  }
+]
